@@ -53,7 +53,7 @@ def train(num_epochs, batch_size):
         loss_sum = 0.0
         acc_sum = 0.0
         n = 0
-        for img, q, loq, a in d:
+        for img, q, loq, a in train_loader:
             img, q, a = (
                 img.to(device),
                 q.to(device),
@@ -80,6 +80,6 @@ def train(num_epochs, batch_size):
 
 
 if __name__ == '__main__':
-    train(5, 128)
+    train(5, 128) # or batch size = 64
 
 

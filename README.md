@@ -1,7 +1,7 @@
 # gqa_pytorch
 Basic model for visual question answering  
 Data: https://cs.stanford.edu/people/dorarad/gqa/index.html  
-  Major part of preprocess.py and dataset.py is from https://github.com/ronilp/mac-network-pytorch-gqa
+  Major part of preprocess.py and dataset.py is from https://github.com/ronilp/mac-network-pytorch-gqa  
  Attention model for VQA: https://arxiv.org/abs/1707.07998
   Simplify some functions to accelerate the process.
   

@@ -40,7 +40,7 @@ class Attention(nn.Module):
     def __init__(self, self_attention=True, q_dim=2048, v_dim=2048, hid_dim=1024):
         super(Attention, self).__init__()
         self.nonlinear = FC([v_dim + q_dim, hid_dim])
-        self.linear = Linear(hid_dim,1)
+        self.linear = Linear(hid_dim, 1)
         self.sa = self_attention
 
     def forward(self, v, q):
@@ -82,11 +82,25 @@ class Qmodel(nn.Module):
         self.linear = Linear(1024, 1)
         self.sa = self_attention
 
+    def attention(self, h):  # bsz, len_seq, hidden_size
+        a_vector = self.nonlinear(h)  # bsz, len_seq, hid
+        a_vector = self.linear(a_vector)  # bsz, len_seq, 1
+        # alpha = softmax(a)
+        alpha = nn.functional.softmax(a_vector, dim=1)  # bsz, len_seq, 1
+        return alpha  # alpha is the weights
+
     def forward(self, x):
         x = self.embedding(x)
         x = self.dropout(x)
         lstm_out, (ht, ct) = self.lstm(x)
-        y = self.dense1(ht[-1])
+        if self.sa:
+            alpha = self.attention(lstm_out)  # batch, len_seq, hidden_size
+            x = (alpha * lstm_out).sum(dim=1)  # bsz, hidden
+            # bsz, 1, hidden
+            y = self.dense1(x)  # bsz, out
+        else:
+            y = self.dense1(ht[-1])  # batch, hidden_size
+            # ht shape: (num_layers * num_directions, batch, hidden_size)
         return y
 
     def init_hidden_layer(self, batch_size):
@@ -100,6 +114,12 @@ class Qmodel(nn.Module):
         # Variable(weight.new(shape1,shape2,shape3) is a variable that
         # has the same dtype with valuable weight
 
+    def hidden_states(self, x):
+        x = self.embedding(x)
+        x = self.dropout(x)
+        lstm_out, _ = self.lstm(x)
+        return lstm_out
+
 
 # NLP Module: V 1.1.0
 NLP_out_feature = 2048
@@ -110,7 +130,7 @@ in_features = 2048
 mid_features = 3000
 
 weights_matrix = torch.tensor(glove_embedding.get_embedding_weights())
-netNLP = Qmodel(weights_matrix=weights_matrix, hidden_size=hidden_size, num_layers=2, out_feature=NLP_out_feature, self_attention=False)
+netNLP = Qmodel(weights_matrix=weights_matrix, hidden_size=hidden_size, num_layers=2, out_feature=NLP_out_feature, self_attention=True)
 
 # Attention Module: V 1.0.0
 netAttention = Attention(q_dim=2048, v_dim=2048, hid_dim=1024)
@@ -147,6 +167,14 @@ class MyModel(nn.Module):
         Z = self.classifier(z)
         return Z
 
+
+if __name__ == '__main__':
+    def get_parameter_number(net):
+        total_num = sum(p.numel() for p in net.parameters())
+        trainable_num = sum(p.numel() for p in net.parameters() if p.requires_grad)
+        return {'Total': total_num, 'Trainable': trainable_num}
+    net = MyModel(1800)
+    print(get_parameter_number(net))
 
 
 

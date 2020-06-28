@@ -1,12 +1,17 @@
 # Author: yifanh1
-# Data: 6/10/2020
-# Time: 5:24 PM
+# Data: 6/15/2020
+# Time: 2:31 PM
 
+# model 1: use vgg 16 to get image features
+# input: original images and token questions/answers
 import torch
 from torch import nn
 import glove_embedding
 from torch.autograd import Variable
+import math
+from attention import Linear
 # from torchvision import models
+
 
 def create_emb_layer(weights_matrix, non_trainable=False):
     num_embeddings, embedding_dim = weights_matrix.shape
@@ -53,48 +58,17 @@ hidden_size = 2048
 weights_matrix = torch.tensor(glove_embedding.get_embedding_weights())
 netNLP = Qmodel(weights_matrix=weights_matrix, hidden_size=hidden_size, num_layers=2, out_feature=NLP_out_feature)
 
-# CNN Module: V 1.1.0
+# CNN Module: V 1.2.0
 CNN_out_feature = 2048
-state_dict = torch.load('data/vgg16.pth')
-# The server can not connect internet, so here is a copy of source code of torchvision.models
 
 
-class VGG(nn.Module):
-    def __init__(self, features, num_classes=1000, init_weights=True):
-        super(VGG, self).__init__()
-        self.features = features
-        self.avgpool = nn.AdaptiveAvgPool2d((7, 7))
-        self.classifier = nn.Sequential(
-            nn.Linear(512 * 7 * 7, 4096),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(4096, 4096),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(4096, num_classes),
-        )
-        if init_weights:
-            self._initialize_weights()
+class Flatten(nn.Module):
+    def __init__(self):
+        super(Flatten, self).__init__()
 
     def forward(self, x):
-        x = self.features(x)
-        x = self.avgpool(x)
         x = torch.flatten(x, 1)
-        x = self.classifier(x)
         return x
-
-    def _initialize_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.Linear):
-                nn.init.normal_(m.weight, 0, 0.01)
-                nn.init.constant_(m.bias, 0)
 
 
 def make_layers(cfg, batch_norm=False):
@@ -113,54 +87,28 @@ def make_layers(cfg, batch_norm=False):
     return nn.Sequential(*layers)
 
 
-cfgs = {
-    'A': [64, 'M', 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M'],
-    'B': [64, 64, 'M', 128, 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M'],
-    'D': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M'],
-    'E': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 256, 'M', 512, 512, 512, 512, 'M', 512, 512, 512, 512, 'M'],
-}
-
-
-def _vgg(arch, cfg, batch_norm, pretrained, progress, **kwargs):
-    if pretrained:
-        kwargs['init_weights'] = False
-    model = VGG(make_layers(cfgs[cfg], batch_norm=batch_norm), **kwargs)
-    if pretrained:
-        model.load_state_dict(state_dict)
-    return model
-
-
-def vgg16(pretrained=False, progress=True, **kwargs):
-    return _vgg('vgg16', 'D', False, pretrained, progress, **kwargs)
-
-
-class Flatten(nn.Module):
-    def __init__(self):
-        super(Flatten, self).__init__()
+class CNNModel(nn.Module):
+    def __init__(self, features):
+        super(CNNModel, self).__init__()
+        self.features = features
+        # Initialize weights
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2. / n))
+                m.bias.data.zero_()
+        self.pool = nn.AdaptiveAvgPool2d((7, 7))
+        self.linear = Linear(7*7*256, 2048)
 
     def forward(self, x):
-        x = torch.flatten(x, 1)
+        x = self.features(x)
+        x = self.pool(x)
+        x = x.view(x.size(0), -1)
+        x = self.linear(x)
         return x
 
 
-vgg = vgg16(pretrained=True)
-# vgg = models.vgg16(pretrained=True)
-# new_vgg = nn.Sequential(*(l[:-1]))
-for param in vgg.features[:28].parameters():
-    param.requires_grad = False
-l = list(vgg.children())[:-1]
-vggclassifier = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(512 * 7 * 7, 4096),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(4096, 4096),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(4096, CNN_out_feature),
-        )
-l = [*l, vggclassifier]
-netCNN = nn.Sequential(*l)
+netCNN = CNNModel(make_layers([64, 'M', 128, 'M', 256, 256, 'M'], batch_norm=True))
 
 
 # Classifier: V 1.0.0
